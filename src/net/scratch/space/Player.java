@@ -5,19 +5,22 @@ import java.awt.*;
 /**
  * Created by Scratch on 9/21/2014.
  */
-public class Particle {
+public class Player {
+
+    public Image image;
 
     public float x;
     public float y;
 
-    public int age;
-    public int maxAge;
+    public float speed; //0.3F
+    public float rotation;
 
     public Color color;
 
-    public Particle(Color color, int maxAge, int x, int y){
+    public Player(Image image, Color color, float speed, float x, float y){
+        this.image = image;
         this.color = color;
-        this.maxAge = maxAge;
+        this.speed = speed;
         this.x = x;
         this.y = y;
     }
