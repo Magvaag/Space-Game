@@ -105,6 +105,7 @@ public class Screen extends JPanel implements Runnable {
         drawString(g, "by ScratchForFun");
         drawSpace();
         drawString(g, "fps: " + fps);
+        drawString(g, "ups: " + ups);
         drawSpace();
         drawString(g, "player.x: " + player.x);
         drawString(g, "player.y: " + player.y);
@@ -184,9 +185,9 @@ public class Screen extends JPanel implements Runnable {
     int attack1Cooldown;
     int maxAttack1Cooldown = 45;
     int attack2Cooldown;
-    int maxAttack2Cooldown = 120;
+    int maxAttack2Cooldown = 300;
     int obstacleSpawnCooldown;
-    int maxObstacleSpawnCooldown = 500;
+    int maxObstacleSpawnCooldown = 100;
     public void update(){
         movePlayer();
 
@@ -233,7 +234,17 @@ public class Screen extends JPanel implements Runnable {
     private void spawnObstacles(){
         if(obstacleSpawnCooldown >= maxObstacleSpawnCooldown){
             obstacleSpawnCooldown = 0;
-            obstacleList.add(new CometObstacle(-100+player.x, random.nextInt(1080)-player.y, (float)Math.toRadians(90), 0.5F));
+            int side = random.nextInt(4);
+            float speed = 0.25f+random.nextFloat()*1.5F;
+
+            if(side == 0)
+                obstacleList.add(new CometObstacle(-100+player.x, random.nextInt(1080)-player.y, (float)Math.toRadians(random.nextInt(90)+45), speed));
+            else if(side == 1)
+                obstacleList.add(new CometObstacle(100+Main.SCREEN_WIDTH+player.x, random.nextInt(1080)-player.y, -(float)Math.toRadians(random.nextInt(90)+45), speed));
+            else if(side == 2)
+                obstacleList.add(new CometObstacle(random.nextInt(1920)+player.x, -100-player.y, (float)Math.toRadians(random.nextInt(90)+90+45), speed));
+            else if(side == 3)
+                obstacleList.add(new CometObstacle(random.nextInt(1920)+player.x, 100+Main.SCREEN_HEIGHT-player.y, (float)Math.toRadians(random.nextInt(90)+90+90+45), speed));
         }else{
             obstacleSpawnCooldown++;
         }
@@ -343,15 +354,29 @@ public class Screen extends JPanel implements Runnable {
             obstacle.x+=Math.sin(obstacle.rotation)*obstacle.speed;
             obstacle.y-=Math.cos(obstacle.rotation)*obstacle.speed;
 
+            if(obstacle.x + 500 < player.x || obstacle.x - 500 > player.x+Main.SCREEN_WIDTH)
+                removeObstacleList.add(obstacle);
+            else if(obstacle.y + 500 < player.y || obstacle.y - 500 > player.y+Main.SCREEN_HEIGHT)
+                removeObstacleList.add(obstacle);
+
             if(obstacle instanceof CometObstacle) spawnParticlesComet((CometObstacle)obstacle);
             if(obstacle instanceof LivingObstacle){
                 LivingObstacle l_obstacle = (LivingObstacle) obstacle;
-                if(l_obstacle.health <= 0)removeObstacleList.add(obstacle);
+                if(l_obstacle.health <= 0) removeObstacleList.add(obstacle);
             }
         }
 
         for(Obstacle obstacle : removeObstacleList){
             obstacleList.remove(obstacle);
+
+            // Add cool effects!
+            for (int i = 0; i < 300; i++) {
+                float speed = random.nextFloat()/2;
+                float darkness = random.nextFloat()/2;
+                Color color = new Color(1f-darkness, random.nextFloat()/2+0.5F-darkness/2, 0);
+
+                particleList.add(new DirectionalParticle(color, random.nextInt(200), (int) obstacle.x, (int) obstacle.y, obstacle.rotation, obstacle.speed, (float) Math.toRadians(random.nextInt(360)), speed));
+            }
         }
     }
     private void updateBullets(){
@@ -361,9 +386,21 @@ public class Screen extends JPanel implements Runnable {
             bullet.x+=Math.sin(bullet.rotation)*bullet.speed;
             bullet.y-=Math.cos(bullet.rotation)*bullet.speed;
 
+            float closest_obstacle_distance = -1;
+            float closest_obstacle_rotation = 0;
+
             for(Obstacle obstacle : obstacleList){
                 boolean hit_width = false;
                 boolean hit_height = false;
+
+                float deltaX = bullet.x-obstacle.x;
+                float deltaY = bullet.y-obstacle.y;
+
+                float distance = (float)Math.sqrt(deltaX*deltaX + deltaY*deltaY);
+                if(distance < closest_obstacle_distance || closest_obstacle_distance < 0){
+                    closest_obstacle_distance = distance;
+                    closest_obstacle_rotation = (float)-Math.atan2(deltaX, deltaY);
+                }
 
                 // Hit left/right side
                 if(bullet.x-bullet.image.getWidth(null)*pixelSize/2 > obstacle.x-obstacle.image.getWidth(null)*pixelSize/2 - bullet.image.getWidth(null)*pixelSize && bullet.x-bullet.image.getWidth(null)*pixelSize/2 < obstacle.x-obstacle.image.getWidth(null)*pixelSize/2 + obstacle.image.getWidth(null)*pixelSize){
@@ -383,6 +420,14 @@ public class Screen extends JPanel implements Runnable {
                         l_obstacle.health--;
                     }
                 }
+            }
+
+            if(bullet instanceof MissileBullet && closest_obstacle_distance != -1){
+                if(Math.toDegrees(closest_obstacle_rotation)+10 < Math.toDegrees(bullet.rotation))
+                    bullet.rotation-=Math.toRadians(1);
+                else if(Math.toDegrees(closest_obstacle_rotation)-10 > Math.toDegrees(bullet.rotation))
+                    bullet.rotation+=Math.toRadians(1);
+                else bullet.rotation = closest_obstacle_rotation;
             }
 
             bullet.age++;
@@ -408,10 +453,48 @@ public class Screen extends JPanel implements Runnable {
         }
     }
 
+    //http://www.koonsolo.com/news/dewitters-gameloop/
     int fps;
+    int ups;
     public void run() {
+        int TICKS_PER_SECOND = 200;
+        int SKIP_TICKS = 1000 / TICKS_PER_SECOND;
+        int MAX_FRAMESKIP = 5;
+
+        long next_game_tick = System.currentTimeMillis();
         long time = System.currentTimeMillis();
+        int loops;
+        int loopsps = 0;
         int frames = 0;
+        float interpolation;
+
+        while( true ) {
+
+            loops = 0;
+            while(System.currentTimeMillis() > next_game_tick && loops < MAX_FRAMESKIP) {
+                update();
+
+                next_game_tick += SKIP_TICKS;
+                loops++;
+                loopsps++;
+            }
+
+            interpolation = (float)(System.currentTimeMillis() + SKIP_TICKS - next_game_tick) / (float)SKIP_TICKS;
+            repaint();
+            frames++;
+
+            if(time+1000 <= System.currentTimeMillis()){
+                fps = frames;
+                ups = loopsps;
+                loopsps = 0;
+                frames = 0;
+                time = System.currentTimeMillis();
+            }
+        }
+
+
+/*
+        long time = System.currentTimeMillis();
 
         while(true){
             // Update
@@ -433,6 +516,6 @@ public class Screen extends JPanel implements Runnable {
                 frames = 0;
                 time = System.currentTimeMillis();
             }
-        }
+        }*/
     }
 }
